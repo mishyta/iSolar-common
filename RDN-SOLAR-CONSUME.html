@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>СЕС + РДН + Споживання</title>
+    <script src="https://code.highcharts.com/highcharts.js"></script>
+    <script src="https://code.highcharts.com/modules/draggable-points.js"></script>
+    <style>
+        .inputs-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+            margin-bottom: 20px;
+        }
+        .inputs-row label {
+            font-size: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .inputs-row input {
+            width: 50px;
+            padding: 4px;
+            text-align: center;
+        }
+        .controls {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="container" style="height: 500px; min-width: 900px;"></div>
+
+<h3>
+    Потужність станції (кВт):
+    <input type="range" id="powerInput" min="100" max="2000" value="1000" step="50">
+    <span id="powerLabel">1000</span> кВт
+</h3>
+
+<h4>Коефіцієнти генерації (від 0 до 1):</h4>
+<div class="inputs-row" id="genCoefInputs"></div>
+
+<h4>Ціна РДН по годинах (грн/кВт·год)</h4>
+<div class="inputs-row controls">
+    <button onclick="adjustInputs('rdnInputs', true)">+%</button>
+    <input type="number" id="rdnAdjust" value="10" style="width: 60px;">%
+    <button onclick="adjustInputs('rdnInputs', false)">-%</button>
+</div>
+<div class="inputs-row" id="rdnInputs"></div>
+
+<h4>Споживання по годинах (кВт)</h4>
+<div class="inputs-row controls">
+    <button onclick="adjustInputs('loadInputs', true)">+%</button>
+    <input type="number" id="loadAdjust" value="10" style="width: 60px;">%
+    <button onclick="adjustInputs('loadInputs', false)">-%</button>
+</div>
+<div class="inputs-row" id="loadInputs"></div>
+
+<script>
+    let genCoefs = [
+        0, 0, 0, 0, 0, 0, 0.007, 0.038, 0.117, 0.225, 0.331, 0.406, 0.437,
+        0.425, 0.386, 0.334, 0.266, 0.158, 0.069, 0.014, 0, 0, 0,0
+
+    ];
+
+    let defaultRDN = [
+        3.69, 3.34, 3.13, 3.02, 3.03, 3.26,
+        3.61, 4.47, 5.15, 5.24, 4.67, 3.09,
+        2.56, 2.76, 2.97, 2.97, 4.04, 6.11,
+        6.57, 7.17, 7.54, 7.72, 6.84, 4.22
+    ];
+
+    let defaultLoad = [
+        50, 50, 50, 50, 60, 80,
+        200, 240, 260, 270, 280, 270,
+        270, 260, 250, 250, 250, 240,
+        240, 220, 200, 100, 60, 50
+    ];
+
+    const hourLabels = Array.from({length: 24}, (_, i) => `${i}:00`);
+    let chart;
+
+    function calculateGen(power) {
+        return genCoefs.map(coef => +(coef * power).toFixed(1));
+    }
+
+    function renderChart(power) {
+        chart = Highcharts.chart('container', {
+            chart: { zoomType: 'xy' },
+            title: { text: 'Генерація, Споживання та Ціни РДН (по годинах)' },
+            xAxis: [{ categories: hourLabels, title: { text: 'Година доби' } }],
+            yAxis: [{
+                title: { text: 'Потужність (кВт)' },
+                labels: { format: '{value} кВт' }
+            }, {
+                title: { text: 'Ціна РДН (грн/кВт·год)' },
+                labels: { format: '{value} грн' },
+                opposite: true
+            }],
+            tooltip: { shared: true },
+            plotOptions: {
+                series: {
+                    stickyTracking: false,
+                    point: {
+                        events: {
+                            drop: function () {
+                                const index = this.index;
+                                const seriesId = this.series.options.id;
+                                const val = +this.y.toFixed(2);
+                                if (seriesId === 'generationSeries') {
+                                    genCoefs[index] = val / parseInt(document.getElementById('powerInput').value);
+                                    document.querySelector(`#genCoefInputs input[data-hour='${index}']`).value = genCoefs[index].toFixed(3);
+                                }
+                                if (seriesId === 'rdnSeries') {
+                                    defaultRDN[index] = val;
+                                    document.querySelector(`#rdnInputs input[data-hour='${index}']`).value = val;
+                                }
+                                if (seriesId === 'loadSeries') {
+                                    defaultLoad[index] = val;
+                                    document.querySelector(`#loadInputs input[data-hour='${index}']`).value = val;
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            series: [
+                {
+                    name: 'СЕС',
+                    id: 'generationSeries',
+                    type: 'areaspline',
+                    data: calculateGen(power),
+                    color: '#f7a35c',
+                    yAxis: 0,
+                    fillOpacity: 0.3,
+                    draggableY: true
+                },
+                {
+                    name: 'Ціна РДН',
+                    id: 'rdnSeries',
+                    type: 'areaspline',
+                    data: defaultRDN,
+                    color: '#7cb5ec',
+                    yAxis: 1,
+                    fillOpacity: 0,
+                    dashStyle: 'ShortDash',
+                    draggableY: true
+                },
+                {
+                    name: 'Споживання',
+                    id: 'loadSeries',
+                    type: 'areaspline',
+                    data: defaultLoad,
+                    color: '#90ed7d',
+                    yAxis: 0,
+                    fillOpacity: 0.2,
+                    dashStyle: 'Dot',
+                    draggableY: true
+                }
+            ]
+        });
+    }
+
+    function updateGenSeries() {
+        const power = parseInt(document.getElementById('powerInput').value);
+        const series = chart.get('generationSeries');
+        if (series) series.setData(calculateGen(power));
+    }
+
+    function createInputs(data, containerId, onChangeHandler, isCoef) {
+        const container = document.getElementById(containerId);
+        container.innerHTML = '';
+        for (let i = 0; i < 24; i++) {
+            const label = document.createElement('label');
+            label.innerHTML = `${i}`;
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.step = isCoef ? '0.001' : '0.01';
+            input.value = data[i].toFixed(isCoef ? 3 : 2);
+            input.dataset.hour = i;
+            input.addEventListener('change', onChangeHandler);
+            label.appendChild(input);
+            container.appendChild(label);
+        }
+    }
+
+    function updateCoefData() {
+        document.querySelectorAll('#genCoefInputs input').forEach(inp => {
+            const hour = parseInt(inp.dataset.hour);
+            const val = parseFloat(inp.value);
+            genCoefs[hour] = isNaN(val) ? 0 : +val;
+        });
+        updateGenSeries();
+    }
+
+    function updateRDNData() {
+        const newData = [];
+        document.querySelectorAll('#rdnInputs input').forEach(inp => {
+            const val = parseFloat(inp.value);
+            newData.push(isNaN(val) ? 0 : +val.toFixed(2));
+        });
+        defaultRDN = newData;
+        const rdnSeries = chart.get('rdnSeries');
+        if (rdnSeries) rdnSeries.setData(newData);
+    }
+
+    function updateLoadData() {
+        const newData = [];
+        document.querySelectorAll('#loadInputs input').forEach(inp => {
+            const val = parseFloat(inp.value);
+            newData.push(isNaN(val) ? 0 : +val.toFixed(2));
+        });
+        defaultLoad = newData;
+        const loadSeries = chart.get('loadSeries');
+        if (loadSeries) loadSeries.setData(newData);
+    }
+
+    function adjustInputs(containerId, increase = true) {
+        const percent = parseFloat(document.getElementById(containerId === 'rdnInputs' ? 'rdnAdjust' : 'loadAdjust').value);
+        if (isNaN(percent)) return;
+        const factor = 1 + (increase ? percent : -percent) / 100;
+        const inputs = document.querySelectorAll(`#${containerId} input`);
+        const newData = [];
+        inputs.forEach(inp => {
+            const val = parseFloat(inp.value);
+            const newVal = +(val * factor).toFixed(2);
+            inp.value = newVal;
+            newData.push(newVal);
+        });
+        if (containerId === 'rdnInputs') {
+            defaultRDN = newData;
+            const rdnSeries = chart.get('rdnSeries');
+            if (rdnSeries) rdnSeries.setData(newData);
+        } else {
+            defaultLoad = newData;
+            const loadSeries = chart.get('loadSeries');
+            if (loadSeries) loadSeries.setData(newData);
+        }
+    }
+
+    document.getElementById('powerInput').addEventListener('input', function () {
+        document.getElementById('powerLabel').textContent = this.value;
+        updateGenSeries();
+    });
+
+    // document.getElementById('toggleFill').addEventListener('change', function () {
+    //     const visible = this.checked;
+    //     chart.series.forEach(s => {
+    //         if (s.options.type.includes('area')) {
+    //             s.update({ fillOpacity: visible ? (s.options.id === 'rdnSeries' ? 0.15 : 0.3) : 0 }, false);
+    //         }
+    //     });
+    //     chart.redraw();
+    // });
+
+    renderChart(1000);
+    createInputs(genCoefs, 'genCoefInputs', updateCoefData, true);
+    createInputs(defaultRDN, 'rdnInputs', updateRDNData, false);
+    createInputs(defaultLoad, 'loadInputs', updateLoadData, false);
+</script>
+
+</body>
+</html>
