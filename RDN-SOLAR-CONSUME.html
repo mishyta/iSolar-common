@@ -61,8 +61,7 @@
 <script>
     let genCoefs = [
         0, 0, 0, 0, 0, 0, 0.007, 0.038, 0.117, 0.225, 0.331, 0.406, 0.437,
-        0.425, 0.386, 0.334, 0.266, 0.158, 0.069, 0.014, 0, 0, 0,0
-
+        0.425, 0.386, 0.334, 0.266, 0.158, 0.069, 0.014, 0, 0, 0, 0
     ];
 
     let defaultRDN = [
@@ -86,19 +85,28 @@
         return genCoefs.map(coef => +(coef * power).toFixed(1));
     }
 
+    function calculateBalanceSeries(genData, loadData) {
+        const purchased = [], surplus = [];
+        for (let i = 0; i < 24; i++) {
+            const diff = loadData[i] - genData[i];
+            purchased.push(diff > 0 ? +diff.toFixed(1) : 0);
+            surplus.push(diff < 0 ? +Math.abs(diff).toFixed(1) : 0);
+        }
+        return { purchased, surplus };
+    }
+
     function renderChart(power) {
+        const genData = calculateGen(power);
+        const { purchased, surplus } = calculateBalanceSeries(genData, defaultLoad);
+
         chart = Highcharts.chart('container', {
             chart: { zoomType: 'xy' },
             title: { text: 'Генерація, Споживання та Ціни РДН (по годинах)' },
             xAxis: [{ categories: hourLabels, title: { text: 'Година доби' } }],
-            yAxis: [{
-                title: { text: 'Потужність (кВт)' },
-                labels: { format: '{value} кВт' }
-            }, {
-                title: { text: 'Ціна РДН (грн/кВт·год)' },
-                labels: { format: '{value} грн' },
-                opposite: true
-            }],
+            yAxis: [
+                { title: { text: 'Потужність (кВт)' }, labels: { format: '{value} кВт' } },
+                { title: { text: 'Ціна РДН (грн/кВт·год)' }, labels: { format: '{value} грн' }, opposite: true }
+            ],
             tooltip: { shared: true },
             plotOptions: {
                 series: {
@@ -121,52 +129,29 @@
                                     defaultLoad[index] = val;
                                     document.querySelector(`#loadInputs input[data-hour='${index}']`).value = val;
                                 }
+                                updateGenSeries();
                             }
                         }
                     }
                 }
             },
             series: [
-                {
-                    name: 'СЕС',
-                    id: 'generationSeries',
-                    type: 'areaspline',
-                    data: calculateGen(power),
-                    color: '#f7a35c',
-                    yAxis: 0,
-                    fillOpacity: 0.3,
-                    draggableY: true
-                },
-                {
-                    name: 'Ціна РДН',
-                    id: 'rdnSeries',
-                    type: 'areaspline',
-                    data: defaultRDN,
-                    color: '#7cb5ec',
-                    yAxis: 1,
-                    fillOpacity: 0,
-                    dashStyle: 'ShortDash',
-                    draggableY: true
-                },
-                {
-                    name: 'Споживання',
-                    id: 'loadSeries',
-                    type: 'areaspline',
-                    data: defaultLoad,
-                    color: '#90ed7d',
-                    yAxis: 0,
-                    fillOpacity: 0.2,
-                    dashStyle: 'Dot',
-                    draggableY: true
-                }
+                { name: 'СЕС', id: 'generationSeries', type: 'areaspline', data: genData, color: '#f7a35c', yAxis: 0, fillOpacity: 0.3, draggableY: true },
+                { name: 'Ціна РДН', id: 'rdnSeries', type: 'areaspline', data: defaultRDN, color: '#7cb5ec', yAxis: 1, fillOpacity: 0, dashStyle: 'ShortDash', draggableY: true },
+                { name: 'Споживання', id: 'loadSeries', type: 'areaspline', data: defaultLoad, color: '#90ed7d', yAxis: 0, fillOpacity: 0.2, dashStyle: 'Dot', draggableY: true },
+                { name: 'Закуплена ел.енергія', id: 'purchasedSeries', type: 'areaspline', data: purchased, color: 'rgba(255,77,79,0.51)', yAxis: 0 },
+                { name: 'Надлишки СЕС', id: 'surplusSeries', type: 'areaspline', data: surplus, color: 'rgba(210,76,255,0.57)', yAxis: 0 }
             ]
         });
     }
 
     function updateGenSeries() {
         const power = parseInt(document.getElementById('powerInput').value);
-        const series = chart.get('generationSeries');
-        if (series) series.setData(calculateGen(power));
+        const genData = calculateGen(power);
+        chart.get('generationSeries')?.setData(genData);
+        const { purchased, surplus } = calculateBalanceSeries(genData, defaultLoad);
+        chart.get('purchasedSeries')?.setData(purchased);
+        chart.get('surplusSeries')?.setData(surplus);
     }
 
     function createInputs(data, containerId, onChangeHandler, isCoef) {
@@ -202,8 +187,7 @@
             newData.push(isNaN(val) ? 0 : +val.toFixed(2));
         });
         defaultRDN = newData;
-        const rdnSeries = chart.get('rdnSeries');
-        if (rdnSeries) rdnSeries.setData(newData);
+        chart.get('rdnSeries')?.setData(newData);
     }
 
     function updateLoadData() {
@@ -213,8 +197,11 @@
             newData.push(isNaN(val) ? 0 : +val.toFixed(2));
         });
         defaultLoad = newData;
-        const loadSeries = chart.get('loadSeries');
-        if (loadSeries) loadSeries.setData(newData);
+        chart.get('loadSeries')?.setData(newData);
+        const power = parseInt(document.getElementById('powerInput').value);
+        const { purchased, surplus } = calculateBalanceSeries(calculateGen(power), newData);
+        chart.get('purchasedSeries')?.setData(purchased);
+        chart.get('surplusSeries')?.setData(surplus);
     }
 
     function adjustInputs(containerId, increase = true) {
@@ -231,12 +218,14 @@
         });
         if (containerId === 'rdnInputs') {
             defaultRDN = newData;
-            const rdnSeries = chart.get('rdnSeries');
-            if (rdnSeries) rdnSeries.setData(newData);
+            chart.get('rdnSeries')?.setData(newData);
         } else {
             defaultLoad = newData;
-            const loadSeries = chart.get('loadSeries');
-            if (loadSeries) loadSeries.setData(newData);
+            chart.get('loadSeries')?.setData(newData);
+            const power = parseInt(document.getElementById('powerInput').value);
+            const { purchased, surplus } = calculateBalanceSeries(calculateGen(power), newData);
+            chart.get('purchasedSeries')?.setData(purchased);
+            chart.get('surplusSeries')?.setData(surplus);
         }
     }
 
@@ -244,16 +233,6 @@
         document.getElementById('powerLabel').textContent = this.value;
         updateGenSeries();
     });
-
-    // document.getElementById('toggleFill').addEventListener('change', function () {
-    //     const visible = this.checked;
-    //     chart.series.forEach(s => {
-    //         if (s.options.type.includes('area')) {
-    //             s.update({ fillOpacity: visible ? (s.options.id === 'rdnSeries' ? 0.15 : 0.3) : 0 }, false);
-    //         }
-    //     });
-    //     chart.redraw();
-    // });
 
     renderChart(1000);
     createInputs(genCoefs, 'genCoefInputs', updateCoefData, true);
