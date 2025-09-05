@@ -46,15 +46,14 @@
     </div>
 
     <div id="energyStatsLabel">
-
         РДН:<br>
         Середня вартість 1 кВт·год: <span id="avgCost">—</span> грн<br>
         Всього спожито: <span id="totalLoad">—</span> кВт·год<br>
         Всього закуплено: <span id="totalGrid">—</span> кВт·год<br>
         Всього згенеровано (СЕС): <span id="totalGen">—</span> кВт·год
     </div>
-
 </div>
+
 <div id="container" style="height: 500px; min-width: 900px;"></div>
 
 <h3>
@@ -81,6 +80,7 @@
     <button onclick="adjustInputs('loadInputs', false)">-%</button>
 </div>
 <div class="inputs-row" id="loadInputs"></div>
+
 <h1>Симуляція УЗЕ в розробці!)</h1>
 <h4>Заряд (кВт)</h4>
 <div class="inputs-row" id="chargeInputs"></div>
@@ -131,25 +131,29 @@
         document.getElementById('rdnMax').textContent = rdnMax.toFixed(2);
         document.getElementById('rdnAvg').textContent = rdnAvg.toFixed(2);
         document.getElementById('rdnDelta').textContent = rdnDelta.toFixed(2);
-        let totalCost = 0;
-        let totalGrid = 0;
-        let totalLoad = 0;
-        let totalGen = 0;
+        let totalCost = 0, totalGrid = 0, totalLoadSum = 0, totalGen = 0;
         for (let i = 0; i < 24; i++) {
             const fromGrid = Math.max(0, defaultLoad[i] - genData[i]);
             totalCost += fromGrid * defaultRDN[i];
             totalGrid += fromGrid;
-            totalLoad += defaultLoad[i];
+            totalLoadSum += defaultLoad[i];
             totalGen += genData[i];
         }
-        const avg = totalLoad > 0 ? (totalCost / totalLoad) : 0;
-        const avgGrid = totalGrid > 0 ? (totalCost / totalGrid) : 0;
+        const avg = totalLoadSum > 0 ? (totalCost / totalLoadSum) : 0;
         document.getElementById('avgCost').textContent = avg.toFixed(2);
-        document.getElementById('totalLoad').textContent = totalLoad.toFixed(1);
+        document.getElementById('totalLoad').textContent = totalLoadSum.toFixed(1);
         document.getElementById('totalGrid').textContent = totalGrid.toFixed(1);
         document.getElementById('totalGen').textContent = totalGen.toFixed(1);
+    }
 
-
+    // --- helpers to keep inputs in sync when dragging points ---
+    function setInput(containerId, hour, value, digits = 2) {
+        const inp = document.querySelector(`#${containerId} input[data-hour="${hour}"]`);
+        if (inp) inp.value = (+value).toFixed(digits);
+    }
+    function setGenCoefInput(hour, coef) {
+        const inp = document.querySelector(`#genCoefInputs input[data-hour="${hour}"]`);
+        if (inp) inp.value = (+coef).toFixed(3);
     }
 
     function renderChart(power) {
@@ -174,17 +178,35 @@
                     point: {
                         events: {
                             drop: function () {
-                                const index = this.index;
-                                const seriesId = this.series.options.id;
+                                const i = this.index;
+                                const id = this.series.options.id;
                                 const val = +this.y.toFixed(2);
-                                if (seriesId === 'generationSeries') genCoefs[index] = val / parseInt(document.getElementById('powerInput').value);
-                                if (seriesId === 'rdnSeries') defaultRDN[index] = val;
-                                if (seriesId === 'loadSeries') defaultLoad[index] = val;
-                                if (seriesId === 'chargeSeries') charge[index] = val;
-                                if (seriesId === 'dischargeSeries') discharge[index] = val;
+
+                                if (id === 'generationSeries') {
+                                    const power = parseInt(document.getElementById('powerInput').value);
+                                    const coef = power > 0 ? (val / power) : 0;
+                                    genCoefs[i] = +coef.toFixed(6);
+                                    setGenCoefInput(i, genCoefs[i]);
+                                    updateGenSeries();
+                                }
+                                if (id === 'rdnSeries') {
+                                    defaultRDN[i] = val;
+                                    setInput('rdnInputs', i, val, 2);
+                                    updateRDN();
+                                }
+                                if (id === 'loadSeries') {
+                                    defaultLoad[i] = val;
+                                    setInput('loadInputs', i, val, 2);
+                                    updateLoad();
+                                }
+                                if (id === 'chargeSeries') {
+                                    charge[i] = val;
+                                }
+                                if (id === 'dischargeSeries') {
+                                    discharge[i] = val;
+                                }
                                 calculateBattery();
                                 chart.get('batterySeries')?.setData(battery);
-                                updateGenSeries();
                             }
                         }
                     }
@@ -196,9 +218,9 @@
                 { name: 'Споживання', id: 'loadSeries', type: 'areaspline', data: defaultLoad, color: '#90ed7d', yAxis: 0, fillOpacity: 0.2, dashStyle: 'Dot', draggableY: true },
                 { name: 'Закуплена ел.енергія', id: 'purchasedSeries', type: 'areaspline', data: purchased, color: 'rgba(255,77,79,0.51)', yAxis: 0 },
                 { name: 'Надлишки СЕС', id: 'surplusSeries', type: 'areaspline', data: surplus, color: 'rgba(210,76,255,0.57)', yAxis: 0 },
-                { name: 'Charge',visible: false, id: 'chargeSeries', type: 'column', data: charge, color: '#00ccff', yAxis: 0, draggableY: true },
-                { name: 'Discharge', visible: false,id: 'dischargeSeries', type: 'column', data: discharge, color: '#ff6666', yAxis: 0, draggableY: true },
-                { name: 'Battery SoC', visible: false,id: 'batterySeries', type: 'line', data: battery, color: '#6633cc', yAxis: 2 }
+                { name: 'Charge', visible: false, id: 'chargeSeries', type: 'column', data: charge, color: '#00ccff', yAxis: 0, draggableY: true },
+                { name: 'Discharge', visible: false, id: 'dischargeSeries', type: 'column', data: discharge, color: '#ff6666', yAxis: 0, draggableY: true },
+                { name: 'Battery SoC', visible: false, id: 'batterySeries', type: 'line', data: battery, color: '#6633cc', yAxis: 2 }
             ]
         });
     }
@@ -211,6 +233,39 @@
         chart.get('purchasedSeries')?.setData(purchased);
         chart.get('surplusSeries')?.setData(surplus);
         calculateAvgCost(genData);
+    }
+
+    function updateRDN() {
+        document.querySelectorAll('#rdnInputs input').forEach(inp => {
+            const h = parseInt(inp.dataset.hour);
+            defaultRDN[h] = +parseFloat(inp.value);
+        });
+        chart.get('rdnSeries')?.setData(defaultRDN);
+        updateGenSeries();
+    }
+
+    function updateLoad() {
+        document.querySelectorAll('#loadInputs input').forEach(inp => {
+            const h = parseInt(inp.dataset.hour);
+            defaultLoad[h] = +parseFloat(inp.value);
+        });
+        chart.get('loadSeries')?.setData(defaultLoad);
+        updateGenSeries();
+    }
+
+    function adjustInputs(containerId, increase) {
+        const percentInputId = containerId === 'rdnInputs' ? 'rdnAdjust' : 'loadAdjust';
+        const deltaPercent = parseFloat(document.getElementById(percentInputId).value || '0');
+        const k = increase ? 1 + deltaPercent / 100 : 1 - deltaPercent / 100;
+
+        document.querySelectorAll(`#${containerId} input`).forEach(inp => {
+            let v = parseFloat(inp.value || '0');
+            v = +(v * k).toFixed(2);
+            inp.value = v;
+        });
+
+        if (containerId === 'rdnInputs') updateRDN();
+        if (containerId === 'loadInputs') updateLoad();
     }
 
     function createInputs(data, containerId, onChangeHandler, isCoef = false) {
@@ -250,15 +305,24 @@
         chart.get('batterySeries')?.setData(battery);
     }
 
+    function updateGenCoefs() {
+        document.querySelectorAll('#genCoefInputs input').forEach(inp => {
+            const h = parseInt(inp.dataset.hour);
+            genCoefs[h] = +parseFloat(inp.value);
+        });
+        updateGenSeries();
+    }
+
     document.getElementById('powerInput').addEventListener('input', function () {
         document.getElementById('powerLabel').textContent = this.value;
         updateGenSeries();
     });
 
+    // init
     renderChart(1000);
-    createInputs(genCoefs, 'genCoefInputs', updateGenSeries, true);
-    createInputs(defaultRDN, 'rdnInputs', () => chart.get('rdnSeries')?.setData(defaultRDN));
-    createInputs(defaultLoad, 'loadInputs', () => chart.get('loadSeries')?.setData(defaultLoad));
+    createInputs(genCoefs, 'genCoefInputs', updateGenCoefs, true);
+    createInputs(defaultRDN, 'rdnInputs', updateRDN);
+    createInputs(defaultLoad, 'loadInputs', updateLoad);
     createInputs(charge, 'chargeInputs', updateCharge);
     createInputs(discharge, 'dischargeInputs', updateDischarge);
 </script>
