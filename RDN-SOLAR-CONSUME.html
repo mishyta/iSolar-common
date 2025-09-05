@@ -27,15 +27,39 @@
         .controls {
             margin-bottom: 20px;
         }
+        #avgCostLabel {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
 
+<div style="display: flex; gap: 50px; align-items: flex-start;">
+    <div id="rdnStatsLabel">
+        <strong>РДН:</strong><br>
+        • Середнє: <span id="rdnAvg">—</span> грн<br>
+        • Макс: <span id="rdnMax">—</span> грн<br>
+        • Мін: <span id="rdnMin">—</span> грн<br>
+        • Δ: <span id="rdnDelta">—</span> грн
+    </div>
+
+    <div id="energyStatsLabel">
+
+        РДН:<br>
+        Середня вартість 1 кВт·год: <span id="avgCost">—</span> грн<br>
+        Всього спожито: <span id="totalLoad">—</span> кВт·год<br>
+        Всього закуплено: <span id="totalGrid">—</span> кВт·год<br>
+        Всього згенеровано (СЕС): <span id="totalGen">—</span> кВт·год
+    </div>
+
+</div>
 <div id="container" style="height: 500px; min-width: 900px;"></div>
 
 <h3>
     Потужність станції (кВт):
-    <input type="range" id="powerInput" min="100" max="2000" value="1000" step="50">
+    <input type="range" id="powerInput" min="0" max="5000" value="1000" step="50">
     <span id="powerLabel">1000</span> кВт
 </h3>
 
@@ -57,28 +81,22 @@
     <button onclick="adjustInputs('loadInputs', false)">-%</button>
 </div>
 <div class="inputs-row" id="loadInputs"></div>
+<h1>Симуляція УЗЕ в розробці!)</h1>
+<h4>Заряд (кВт)</h4>
+<div class="inputs-row" id="chargeInputs"></div>
+
+<h4>Розряд (кВт)</h4>
+<div class="inputs-row" id="dischargeInputs"></div>
 
 <script>
-    let genCoefs = [
-        0, 0, 0, 0, 0, 0, 0.007, 0.038, 0.117, 0.225, 0.331, 0.406, 0.437,
-        0.425, 0.386, 0.334, 0.266, 0.158, 0.069, 0.014, 0, 0, 0, 0
-    ];
+    let genCoefs = [0, 0, 0, 0, 0, 0, 0.007, 0.038, 0.117, 0.225, 0.331, 0.406, 0.437, 0.425, 0.386, 0.334, 0.266, 0.158, 0.069, 0.014, 0, 0, 0, 0];
+    let defaultRDN = [3.69, 3.34, 3.13, 3.02, 3.03, 3.26, 3.61, 4.47, 5.15, 5.24, 4.67, 3.09, 2.56, 2.76, 2.97, 2.97, 4.04, 6.11, 6.57, 7.17, 7.54, 7.72, 6.84, 4.22];
+    let defaultLoad = [50, 50, 50, 50, 60, 80, 200, 240, 260, 270, 280, 270, 270, 260, 250, 250, 250, 240, 240, 220, 200, 100, 60, 50];
+    let charge = Array(24).fill(0);
+    let discharge = Array(24).fill(0);
+    let battery = Array(24).fill(0);
 
-    let defaultRDN = [
-        3.69, 3.34, 3.13, 3.02, 3.03, 3.26,
-        3.61, 4.47, 5.15, 5.24, 4.67, 3.09,
-        2.56, 2.76, 2.97, 2.97, 4.04, 6.11,
-        6.57, 7.17, 7.54, 7.72, 6.84, 4.22
-    ];
-
-    let defaultLoad = [
-        50, 50, 50, 50, 60, 80,
-        200, 240, 260, 270, 280, 270,
-        270, 260, 250, 250, 250, 240,
-        240, 220, 200, 100, 60, 50
-    ];
-
-    const hourLabels = Array.from({length: 24}, (_, i) => `${i}:00`);
+    const hourLabels = Array.from({ length: 24 }, (_, i) => `${i}:00`);
     let chart;
 
     function calculateGen(power) {
@@ -95,17 +113,59 @@
         return { purchased, surplus };
     }
 
+    function calculateBattery() {
+        let soc = 0;
+        for (let i = 0; i < 24; i++) {
+            soc += charge[i] - discharge[i];
+            if (soc < 0) soc = 0;
+            battery[i] = +soc.toFixed(1);
+        }
+    }
+
+    function calculateAvgCost(genData) {
+        const rdnMin = Math.min(...defaultRDN);
+        const rdnMax = Math.max(...defaultRDN);
+        const rdnAvg = defaultRDN.reduce((a, b) => a + b, 0) / defaultRDN.length;
+        const rdnDelta = rdnMax - rdnMin;
+        document.getElementById('rdnMin').textContent = rdnMin.toFixed(2);
+        document.getElementById('rdnMax').textContent = rdnMax.toFixed(2);
+        document.getElementById('rdnAvg').textContent = rdnAvg.toFixed(2);
+        document.getElementById('rdnDelta').textContent = rdnDelta.toFixed(2);
+        let totalCost = 0;
+        let totalGrid = 0;
+        let totalLoad = 0;
+        let totalGen = 0;
+        for (let i = 0; i < 24; i++) {
+            const fromGrid = Math.max(0, defaultLoad[i] - genData[i]);
+            totalCost += fromGrid * defaultRDN[i];
+            totalGrid += fromGrid;
+            totalLoad += defaultLoad[i];
+            totalGen += genData[i];
+        }
+        const avg = totalLoad > 0 ? (totalCost / totalLoad) : 0;
+        const avgGrid = totalGrid > 0 ? (totalCost / totalGrid) : 0;
+        document.getElementById('avgCost').textContent = avg.toFixed(2);
+        document.getElementById('totalLoad').textContent = totalLoad.toFixed(1);
+        document.getElementById('totalGrid').textContent = totalGrid.toFixed(1);
+        document.getElementById('totalGen').textContent = totalGen.toFixed(1);
+
+
+    }
+
     function renderChart(power) {
         const genData = calculateGen(power);
         const { purchased, surplus } = calculateBalanceSeries(genData, defaultLoad);
+        calculateBattery();
+        calculateAvgCost(genData);
 
         chart = Highcharts.chart('container', {
             chart: { zoomType: 'xy' },
-            title: { text: 'Генерація, Споживання та Ціни РДН (по годинах)' },
+            title: { text: 'Генерація, Споживання, Заряд/Розряд, Батарея та Ціни РДН' },
             xAxis: [{ categories: hourLabels, title: { text: 'Година доби' } }],
             yAxis: [
-                { title: { text: 'Потужність (кВт)' }, labels: { format: '{value} кВт' } },
-                { title: { text: 'Ціна РДН (грн/кВт·год)' }, labels: { format: '{value} грн' }, opposite: true }
+                { title: { text: 'Потужність (кВт)' }, labels: { format: '{value} кВт' }, opposite: false },
+                { title: { text: 'Ціна РДН (грн/кВт·год)' }, labels: { format: '{value} грн' }, opposite: true },
+                { title: { text: 'Заряд батареї (кВт·год)' }, labels: { format: '{value} кВт·год' }, opposite: false }
             ],
             tooltip: { shared: true },
             plotOptions: {
@@ -117,18 +177,13 @@
                                 const index = this.index;
                                 const seriesId = this.series.options.id;
                                 const val = +this.y.toFixed(2);
-                                if (seriesId === 'generationSeries') {
-                                    genCoefs[index] = val / parseInt(document.getElementById('powerInput').value);
-                                    document.querySelector(`#genCoefInputs input[data-hour='${index}']`).value = genCoefs[index].toFixed(3);
-                                }
-                                if (seriesId === 'rdnSeries') {
-                                    defaultRDN[index] = val;
-                                    document.querySelector(`#rdnInputs input[data-hour='${index}']`).value = val;
-                                }
-                                if (seriesId === 'loadSeries') {
-                                    defaultLoad[index] = val;
-                                    document.querySelector(`#loadInputs input[data-hour='${index}']`).value = val;
-                                }
+                                if (seriesId === 'generationSeries') genCoefs[index] = val / parseInt(document.getElementById('powerInput').value);
+                                if (seriesId === 'rdnSeries') defaultRDN[index] = val;
+                                if (seriesId === 'loadSeries') defaultLoad[index] = val;
+                                if (seriesId === 'chargeSeries') charge[index] = val;
+                                if (seriesId === 'dischargeSeries') discharge[index] = val;
+                                calculateBattery();
+                                chart.get('batterySeries')?.setData(battery);
                                 updateGenSeries();
                             }
                         }
@@ -140,7 +195,10 @@
                 { name: 'Ціна РДН', id: 'rdnSeries', type: 'areaspline', data: defaultRDN, color: '#7cb5ec', yAxis: 1, fillOpacity: 0, dashStyle: 'ShortDash', draggableY: true },
                 { name: 'Споживання', id: 'loadSeries', type: 'areaspline', data: defaultLoad, color: '#90ed7d', yAxis: 0, fillOpacity: 0.2, dashStyle: 'Dot', draggableY: true },
                 { name: 'Закуплена ел.енергія', id: 'purchasedSeries', type: 'areaspline', data: purchased, color: 'rgba(255,77,79,0.51)', yAxis: 0 },
-                { name: 'Надлишки СЕС', id: 'surplusSeries', type: 'areaspline', data: surplus, color: 'rgba(210,76,255,0.57)', yAxis: 0 }
+                { name: 'Надлишки СЕС', id: 'surplusSeries', type: 'areaspline', data: surplus, color: 'rgba(210,76,255,0.57)', yAxis: 0 },
+                { name: 'Charge',visible: false, id: 'chargeSeries', type: 'column', data: charge, color: '#00ccff', yAxis: 0, draggableY: true },
+                { name: 'Discharge', visible: false,id: 'dischargeSeries', type: 'column', data: discharge, color: '#ff6666', yAxis: 0, draggableY: true },
+                { name: 'Battery SoC', visible: false,id: 'batterySeries', type: 'line', data: battery, color: '#6633cc', yAxis: 2 }
             ]
         });
     }
@@ -152,9 +210,10 @@
         const { purchased, surplus } = calculateBalanceSeries(genData, defaultLoad);
         chart.get('purchasedSeries')?.setData(purchased);
         chart.get('surplusSeries')?.setData(surplus);
+        calculateAvgCost(genData);
     }
 
-    function createInputs(data, containerId, onChangeHandler, isCoef) {
+    function createInputs(data, containerId, onChangeHandler, isCoef = false) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
         for (let i = 0; i < 24; i++) {
@@ -171,62 +230,24 @@
         }
     }
 
-    function updateCoefData() {
-        document.querySelectorAll('#genCoefInputs input').forEach(inp => {
+    function updateCharge() {
+        document.querySelectorAll('#chargeInputs input').forEach(inp => {
             const hour = parseInt(inp.dataset.hour);
-            const val = parseFloat(inp.value);
-            genCoefs[hour] = isNaN(val) ? 0 : +val;
+            charge[hour] = +parseFloat(inp.value);
         });
-        updateGenSeries();
+        chart.get('chargeSeries')?.setData(charge);
+        calculateBattery();
+        chart.get('batterySeries')?.setData(battery);
     }
 
-    function updateRDNData() {
-        const newData = [];
-        document.querySelectorAll('#rdnInputs input').forEach(inp => {
-            const val = parseFloat(inp.value);
-            newData.push(isNaN(val) ? 0 : +val.toFixed(2));
+    function updateDischarge() {
+        document.querySelectorAll('#dischargeInputs input').forEach(inp => {
+            const hour = parseInt(inp.dataset.hour);
+            discharge[hour] = +parseFloat(inp.value);
         });
-        defaultRDN = newData;
-        chart.get('rdnSeries')?.setData(newData);
-    }
-
-    function updateLoadData() {
-        const newData = [];
-        document.querySelectorAll('#loadInputs input').forEach(inp => {
-            const val = parseFloat(inp.value);
-            newData.push(isNaN(val) ? 0 : +val.toFixed(2));
-        });
-        defaultLoad = newData;
-        chart.get('loadSeries')?.setData(newData);
-        const power = parseInt(document.getElementById('powerInput').value);
-        const { purchased, surplus } = calculateBalanceSeries(calculateGen(power), newData);
-        chart.get('purchasedSeries')?.setData(purchased);
-        chart.get('surplusSeries')?.setData(surplus);
-    }
-
-    function adjustInputs(containerId, increase = true) {
-        const percent = parseFloat(document.getElementById(containerId === 'rdnInputs' ? 'rdnAdjust' : 'loadAdjust').value);
-        if (isNaN(percent)) return;
-        const factor = 1 + (increase ? percent : -percent) / 100;
-        const inputs = document.querySelectorAll(`#${containerId} input`);
-        const newData = [];
-        inputs.forEach(inp => {
-            const val = parseFloat(inp.value);
-            const newVal = +(val * factor).toFixed(2);
-            inp.value = newVal;
-            newData.push(newVal);
-        });
-        if (containerId === 'rdnInputs') {
-            defaultRDN = newData;
-            chart.get('rdnSeries')?.setData(newData);
-        } else {
-            defaultLoad = newData;
-            chart.get('loadSeries')?.setData(newData);
-            const power = parseInt(document.getElementById('powerInput').value);
-            const { purchased, surplus } = calculateBalanceSeries(calculateGen(power), newData);
-            chart.get('purchasedSeries')?.setData(purchased);
-            chart.get('surplusSeries')?.setData(surplus);
-        }
+        chart.get('dischargeSeries')?.setData(discharge);
+        calculateBattery();
+        chart.get('batterySeries')?.setData(battery);
     }
 
     document.getElementById('powerInput').addEventListener('input', function () {
@@ -235,9 +256,11 @@
     });
 
     renderChart(1000);
-    createInputs(genCoefs, 'genCoefInputs', updateCoefData, true);
-    createInputs(defaultRDN, 'rdnInputs', updateRDNData, false);
-    createInputs(defaultLoad, 'loadInputs', updateLoadData, false);
+    createInputs(genCoefs, 'genCoefInputs', updateGenSeries, true);
+    createInputs(defaultRDN, 'rdnInputs', () => chart.get('rdnSeries')?.setData(defaultRDN));
+    createInputs(defaultLoad, 'loadInputs', () => chart.get('loadSeries')?.setData(defaultLoad));
+    createInputs(charge, 'chargeInputs', updateCharge);
+    createInputs(discharge, 'dischargeInputs', updateDischarge);
 </script>
 
 </body>
